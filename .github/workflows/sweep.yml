@@ -16,21 +16,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Drop files older than 90 days
+      - name: Delete core-* branches whose latest commit is older than 90 days
         run: |
           set -eu
-          git config user.email "actions@github.com"
-          git config user.name  "pr-assets sweeper"
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
           cutoff=$(date -d '90 days ago' +%s)
-          changed=0
-          for f in $(find . -maxdepth 1 -type f -name '*.png' -printf '%f\n'); do
-            mtime=$(stat -c %Y "$f")
-            if [ "$mtime" -lt "$cutoff" ]; then
-              git rm "$f"
-              changed=1
-            fi
-          done
-          if [ "$changed" -eq 1 ]; then
-            git commit -m "sweep: drop files older than 90 days"
-            git push
-          fi
+          git for-each-ref --format='%(refname:short) %(committerdate:unix)' refs/remotes/origin \
+            | while read ref ts; do
+                name="${ref#origin/}"
+                case "$name" in
+                  core-*) ;;
+                  *) continue ;;
+                esac
+                if [ "$ts" -lt "$cutoff" ]; then
+                  echo "deleting $name (committed $(date -d @$ts -u))"
+                  git push origin --delete "$name" || true
+                fi
+              done
